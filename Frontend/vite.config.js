@@ -14,7 +14,7 @@ export default defineConfig({
     assetsDir: 'assets',
     sourcemap: false,
     cssCodeSplit: true,
-    minify: 'terser',
+    minify: 'esbuild',
     rollupOptions: {
       output: {
         manualChunks: undefined
