@@ -9,7 +9,10 @@ import {
   Brain,
   BarChart3,
   TrendingUp,
-  Target
+  Target,
+  Eye,
+  Smile,
+  FileText
 } from 'lucide-react'
 
 const AnalysisPage = () => {
@@ -20,6 +23,7 @@ const AnalysisPage = () => {
 
   const [currentStep, setCurrentStep] = useState(0)
   const [progress, setProgress] = useState(0)
+  const [currentFeature, setCurrentFeature] = useState(0)
 
   const steps = [
     {
@@ -53,6 +57,54 @@ const AnalysisPage = () => {
       duration: 2500
     }
   ]
+
+  const features = [
+    {
+      icon: <Eye className="w-12 h-12" />,
+      title: 'AI Visibility Score',
+      description: 'Tracking brand presence across AI platforms',
+      color: 'from-blue-500 to-blue-600'
+    },
+    {
+      icon: <Smile className="w-12 h-12" />,
+      title: 'Sentiment Analysis',
+      description: 'Analyzing AI perception of your brand',
+      color: 'from-purple-500 to-purple-600'
+    },
+    {
+      icon: <Search className="w-12 h-12" />,
+      title: 'Information Depth',
+      description: 'Measuring AI knowledge about your company',
+      color: 'from-indigo-500 to-indigo-600'
+    },
+    {
+      icon: <TrendingUp className="w-12 h-12" />,
+      title: 'Brand Rankings',
+      description: 'Checking position in AI-generated lists',
+      color: 'from-pink-500 to-pink-600'
+    },
+    {
+      icon: <Target className="w-12 h-12" />,
+      title: 'Actionable Insights',
+      description: 'Generating optimization recommendations',
+      color: 'from-orange-500 to-orange-600'
+    },
+    {
+      icon: <FileText className="w-12 h-12" />,
+      title: 'Detailed Report',
+      description: 'Compiling comprehensive analysis',
+      color: 'from-teal-500 to-teal-600'
+    }
+  ]
+
+  // Feature card rotation effect
+  useEffect(() => {
+    const featureInterval = setInterval(() => {
+      setCurrentFeature((prev) => (prev + 1) % features.length)
+    }, 2500) // Change card every 2.5 seconds
+
+    return () => clearInterval(featureInterval)
+  }, [])
 
   useEffect(() => {
     // Simulate progress
@@ -88,115 +140,124 @@ const AnalysisPage = () => {
   }, [])
 
   return (
-    <div className="min-h-screen flex items-center justify-center px-4">
-      <div className="max-w-3xl w-full">
+    <div className="min-h-screen bg-gradient-to-r from-sky-200 via-pink-100 to-pink-200 flex items-center justify-center px-4 py-12">
+      <div className="max-w-6xl w-full">
         {/* Header */}
         <motion.div
           initial={{ opacity: 0, y: -20 }}
           animate={{ opacity: 1, y: 0 }}
           className="text-center mb-12"
         >
-          <div className="inline-flex items-center justify-center w-16 h-16 bg-gradient-to-br from-blue-600 to-indigo-600 rounded-2xl mb-6 shadow-lg">
-            <Sparkles className="w-8 h-8 text-white" />
-          </div>
-          <h1 className="text-4xl font-bold text-gray-900 mb-3">
+          <p className="text-2xl font-bold text-gray-900 mb-2">
             Analyzing {formData.companyName || 'Your Brand'}
-          </h1>
-          <p className="text-xl text-gray-600">
-            Sit tight! We're analyzing your AI search visibility across multiple engines
+          </p>
+          <p className="text-lg text-gray-600">
+            Mapping {formData.companyName || 'Your Brand'}'s destiny in the Generative AI frontier...
           </p>
         </motion.div>
 
-        {/* Progress Bar */}
-        <motion.div
-          initial={{ opacity: 0, scale: 0.95 }}
-          animate={{ opacity: 1, scale: 1 }}
-          className="glass-effect rounded-2xl p-8 mb-8 relative overflow-hidden"
-        >
-          <div className="absolute top-0 right-0 w-40 h-40 bg-gradient-to-br from-blue-400/10 to-purple-400/10 rounded-full blur-3xl"></div>
-          <div className="relative z-10">
-          <div className="mb-6">
-            <div className="flex justify-between items-center mb-2">
-              <span className="text-sm font-medium text-gray-700">Overall Progress</span>
-              <span className="text-sm font-semibold text-blue-600">{Math.round(progress)}%</span>
-            </div>
-            <div className="w-full h-3 bg-gray-200 rounded-full overflow-hidden">
-              <motion.div
-                className="h-full bg-gradient-to-r from-blue-600 to-indigo-600 rounded-full"
-                initial={{ width: 0 }}
-                animate={{ width: `${progress}%` }}
-                transition={{ duration: 0.3 }}
-              />
-            </div>
-          </div>
-
-          {/* Estimated Time */}
-          <div className="text-center text-sm text-gray-600">
-            <Loader2 className="w-4 h-4 inline-block animate-spin mr-2" />
-            Estimated time remaining: {Math.max(0, Math.ceil((100 - progress) / 10))} seconds
-          </div>
-          </div>
-        </motion.div>
-
-        {/* Steps */}
-        <div className="space-y-4">
-          {steps.map((step, index) => (
+        {/* AI Engines Being Queried - Side Stats */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+          {['ChatGPT', 'Claude', 'Perplexity', 'Gemini'].map((engine, i) => (
             <motion.div
-              key={index}
+              key={engine}
               initial={{ opacity: 0, x: -20 }}
               animate={{ opacity: 1, x: 0 }}
-              transition={{ delay: index * 0.1 }}
-              className={`glass-effect rounded-xl p-6 transition-all duration-300 ${
-                index === currentStep 
-                  ? 'border-2 border-blue-500 shadow-lg' 
-                  : index < currentStep 
-                  ? 'opacity-75' 
-                  : 'opacity-50'
-              }`}
+              transition={{ delay: i * 0.1 }}
+              className="bg-white/30 backdrop-blur-md border border-white/50 rounded-xl p-4 text-center"
             >
-              <div className="flex items-start space-x-4">
-                <div className={`flex-shrink-0 w-12 h-12 rounded-lg flex items-center justify-center transition-colors ${
-                  index < currentStep
-                    ? 'bg-green-100 text-green-600'
-                    : index === currentStep
-                    ? 'bg-blue-100 text-blue-600'
-                    : 'bg-gray-100 text-gray-400'
-                }`}>
-                  {index < currentStep ? (
-                    <CheckCircle className="w-6 h-6" />
-                  ) : (
-                    step.icon
-                  )}
-                </div>
+              <div className="flex items-center justify-center gap-2">
+                <div className={`w-2 h-2 rounded-full ${progress > (i * 25) ? 'bg-green-500' : 'bg-gray-400'} animate-pulse`}></div>
+                <span className="text-sm font-medium text-gray-800">{engine}</span>
+              </div>
+            </motion.div>
+          ))}
+        </div>
+
+        {/* Feature Cards - Single Centered Card with Rotation */}
+        <div className="flex justify-center items-center mb-8 min-h-[320px]">
+          {features.map((feature, index) => (
+            <motion.div
+              key={index}
+              initial={{ opacity: 0, scale: 0.8 }}
+              animate={{ 
+                opacity: currentFeature === index ? 1 : 0,
+                scale: currentFeature === index ? 1 : 0.8,
+                y: currentFeature === index ? 0 : 20
+              }}
+              transition={{ 
+                duration: 0.8,
+                ease: "easeInOut"
+              }}
+              className={`absolute ${currentFeature === index ? 'z-10' : 'z-0'}`}
+            >
+              {/* Ultra Transparent Glassmorphism Card */}
+              <div className="relative w-[480px] h-[280px] bg-white/10 backdrop-blur-xl border border-white/30 rounded-3xl p-8 shadow-2xl overflow-hidden">
+                {/* Animated gradient background */}
+                <div className="absolute inset-0 bg-gradient-to-br from-white/5 via-blue-50/5 to-purple-50/5"></div>
                 
-                <div className="flex-1">
-                  <div className="flex items-center justify-between mb-1">
-                    <h3 className="font-semibold text-gray-900">{step.title}</h3>
-                    {index === currentStep && (
-                      <Loader2 className="w-5 h-5 text-blue-600 animate-spin" />
-                    )}
-                    {index < currentStep && (
-                      <CheckCircle className="w-5 h-5 text-green-600" />
-                    )}
+                {/* Shimmer effect */}
+                <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent animate-shimmer"></div>
+                
+                {/* Glowing border effect */}
+                <div className="absolute inset-0 rounded-3xl bg-gradient-to-r from-blue-400/20 via-purple-400/20 to-pink-400/20 blur-xl"></div>
+                
+                <div className="relative z-10 flex flex-col items-center justify-center h-full text-center">
+                  {/* Icon with glow */}
+                  <div className={`w-20 h-20 rounded-2xl bg-gradient-to-br ${feature.color} flex items-center justify-center mb-6 text-white shadow-2xl transform transition-transform duration-300 hover:scale-110`}>
+                    <div className="relative">
+                      {feature.icon}
+                      <div className={`absolute inset-0 rounded-2xl bg-gradient-to-br ${feature.color} blur-lg opacity-50`}></div>
+                    </div>
                   </div>
-                  <p className="text-sm text-gray-600">{step.description}</p>
+                  
+                  {/* Title */}
+                  <h3 className="text-2xl font-bold text-gray-900 mb-3 drop-shadow-sm">
+                    {feature.title}
+                  </h3>
+                  
+                  {/* Description */}
+                  <p className="text-base text-gray-800 leading-relaxed max-w-md">
+                    {feature.description}
+                  </p>
+                  
+                  {/* Loading indicator */}
+                  <div className="mt-6 flex items-center space-x-2">
+                    <Loader2 className="w-5 h-5 text-blue-600 animate-spin" />
+                    <span className="text-sm text-gray-700 font-medium">Processing...</span>
+                  </div>
+                </div>
+
+                {/* Progress indicator dots */}
+                <div className="absolute bottom-4 left-1/2 transform -translate-x-1/2 flex space-x-2">
+                  {features.map((_, idx) => (
+                    <div
+                      key={idx}
+                      className={`w-2 h-2 rounded-full transition-all duration-300 ${
+                        idx === currentFeature 
+                          ? 'bg-blue-600 w-8' 
+                          : 'bg-gray-400/50'
+                      }`}
+                    />
+                  ))}
                 </div>
               </div>
             </motion.div>
           ))}
         </div>
 
-        {/* Info Box */}
+        {/* Compact Status Indicator */}
         <motion.div
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
-          transition={{ delay: 1 }}
-          className="mt-8 bg-blue-50 border border-blue-200 rounded-xl p-6"
+          className="text-center mt-8"
         >
-          <p className="text-sm text-blue-800 text-center">
-            <strong>Pro Tip:</strong> We're testing your brand across 50+ unique queries to ensure comprehensive results. 
-            This analysis typically takes 2-3 minutes for the most accurate insights.
-          </p>
+          <div className="inline-flex items-center gap-3 bg-white/20 backdrop-blur-md border border-white/40 rounded-full px-6 py-3 shadow-lg">
+            <Loader2 className="w-5 h-5 animate-spin text-sky-500" />
+            <span className="text-sm font-medium text-gray-700">
+              {Math.round(progress)}% Complete
+            </span>
+          </div>
         </motion.div>
       </div>
     </div>

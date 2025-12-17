@@ -74,3 +74,45 @@
     @apply w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200 outline-none bg-white/90 backdrop-blur-sm;
   }
 }
+
+@layer utilities {
+  /* Bubble float animation */
+  .animate-bubble-float {
+    animation: bubbleFloat 15s ease-in-out infinite;
+  }
+
+  @keyframes bubbleFloat {
+    0% {
+      transform: translateY(0) translateX(0) scale(1);
+      opacity: 0;
+    }
+    10% {
+      opacity: 0.6;
+    }
+    50% {
+      transform: translateY(-50vh) translateX(30px) scale(1.1);
+      opacity: 0.5;
+    }
+    90% {
+      opacity: 0.4;
+    }
+    100% {
+      transform: translateY(-100vh) translateX(-20px) scale(0.9);
+      opacity: 0;
+    }
+  }
+
+  /* Shimmer animation for cards */
+  @keyframes shimmer {
+    0% {
+      transform: translateX(-100%);
+    }
+    100% {
+      transform: translateX(100%);
+    }
+  }
+
+  .animate-shimmer {
+    animation: shimmer 3s infinite;
+  }
+}
