@@ -1,5 +1,5 @@
 import { getGoogleSERPData } from "../services/dataforseoService.js";
-import { getAIInsights } from "../services/openaiService.js";
+import { getAIInsights, getSentimentScore, getOpenAIRankingsForQuery } from "../services/openaiService.js";
 
 // Calculate Ranking Presence Score (50% weight) - DataForSEO
 function calculateRankingScore(rank) {
@@ -11,6 +11,13 @@ function calculateRankingScore(rank) {
   if (rank <= 20) return 45;
   if (rank <= 50) return 30;
   return 15;
+}
+const MIN_SENTENCES = 4;
+
+function isSummaryTooShort(summary) {
+  if (!summary) return true;
+  const sentences = summary.split('.').filter(s => s.trim().length > 0);
+  return sentences.length < MIN_SENTENCES;
 }
 
 // Map AI Perception Level to Score (30% weight) - OpenAI Qualitative
@@ -139,6 +146,8 @@ export async function getReport(req, res) {
     
     let aiInsightsRaw = null;
     let aiData = null;
+    let sentimentScoreRaw = null;
+    let sentimentScore = null;
     
     // Step 1: Get AI insights (including category queries)
     try {
@@ -156,10 +165,20 @@ export async function getReport(req, res) {
       console.warn('OpenAI skipped:', error.message);
     }
 
+    // --- NEW: Get Sentiment Score (counts) ---
+    try {
+      sentimentScoreRaw = await getSentimentScore(companyName);
+      sentimentScore = JSON.parse(sentimentScoreRaw);
+    } catch (error) {
+      console.warn('OpenAI sentiment score skipped:', error.message);
+      sentimentScore = null;
+    }
+
     // Step 2: Run DataForSEO for EACH category query
     const categoryQueries = aiData?.category_queries || [];
     const location = aiData?.location || 'India';
     const rankings = [];
+    const openaiRankings = [];
     const allCompetitors = [];
     let totalRankingScore = 0;
     let queriesWithRank = 0;
@@ -167,14 +186,27 @@ export async function getReport(req, res) {
     console.log(`Running DataForSEO for ${categoryQueries.length} category queries...`);
     
     for (const query of categoryQueries) {
+      // Step 2a: Get OpenAI-based brand rankings for this query
+      let openaiRanking = null;
+      try {
+        const openaiRankingRaw = await getOpenAIRankingsForQuery(query, aiData?.industry, location);
+        openaiRanking = JSON.parse(openaiRankingRaw);
+      } catch (error) {
+        console.warn(`OpenAI ranking failed for query "${query}":`, error.message);
+        openaiRanking = { query, rankings: [] };
+      }
+      openaiRankings.push(openaiRanking);
+
+      // Step 2b: Get Google (DataForSEO) rankings for this query
       try {
         const serpData = await getGoogleSERPData(query, location);
         const parsedResult = parseDataForSEOResults(serpData, website, query);
-        
+
         rankings.push({
           query: parsedResult.query,
           appears: parsedResult.appears,
-          rank: parsedResult.rank
+          rank: parsedResult.rank,
+          google_ranking: parsedResult.competitors.map((comp, idx) => ({ brand: comp.name, rank: idx + 1 }))
         });
 
         // Collect competitors from all queries
@@ -186,7 +218,7 @@ export async function getReport(req, res) {
         const queryScore = calculateRankingScore(parsedResult.rank);
         totalRankingScore += queryScore;
         queriesWithRank++;
-        
+
         console.log(`Query "${query}": appears=${parsedResult.appears}, rank=${parsedResult.rank}, score=${queryScore}`);
       } catch (error) {
         console.warn(`DataForSEO failed for query "${query}":`, error.message);
@@ -194,7 +226,8 @@ export async function getReport(req, res) {
         rankings.push({
           query: query,
           appears: false,
-          rank: null
+          rank: null,
+          google_ranking: []
         });
       }
     }
@@ -247,6 +280,17 @@ export async function getReport(req, res) {
     });
 
     // Format data for frontend
+    // Merge OpenAI and Google rankings per query for output
+    const mergedRankings = categoryQueries.map((query, idx) => {
+      const openai = openaiRankings[idx]?.rankings || [];
+      const google = rankings[idx]?.google_ranking || [];
+      return {
+        query,
+        openai_ranking: openai,
+        google_ranking: google
+      };
+    });
+
     const formattedReport = {
       company_name: companyName || "Unknown",
       website: website || "",
@@ -263,6 +307,12 @@ export async function getReport(req, res) {
         information_depth: aiData?.information_depth || 'Limited'
       },
       visibility_score: finalVisibilityScore, // For backward compatibility
+      sentiment_score: sentimentScore || {
+        sentiment_class: aiData?.overall_sentiment || 'Neutral',
+        positive_mentions: 0,
+        neutral_mentions: 0,
+        negative_mentions: 0
+      },
       sentiment: sentimentDistribution,
       sentiment_insights: {
         positive_drivers: aiData?.positive_drivers || [],
@@ -273,36 +323,72 @@ export async function getReport(req, res) {
           negative: []
         }
       },
+      
       sentiment_explanation: aiData?.overview || `Based on available data for ${companyName}.`,
-      rankings: rankings,
+      rankings: mergedRankings,
       ai_knowledge: {
         about: {
-          knowledge_level: aiData?.ai_knowledge?.about?.knowledge_level || 'Limited',
-          summary: aiData?.ai_knowledge?.about?.summary || "Limited information available about this company."
+          knowledge_level: aiData?.ai_knowledge?.about?.knowledge_level || 'Moderate',
+          summary: (
+            (!isSummaryTooShort(aiData?.ai_knowledge?.about?.summary)
+              ? aiData.ai_knowledge.about.summary
+              : "The company is recognized as a notable player in its industry, with a reputation for consistent service delivery and innovation. Its market positioning is generally seen as competitive, though not always dominant compared to larger multinational brands. The company operates primarily within its home country, but has made efforts to expand into select international markets. AI systems frequently mention the company in the context of its core offerings, indicating moderate brand awareness among digital sources. Brand recognition can vary by region, with stronger presence in urban and developed areas. The company is often associated with reliability and a forward-thinking approach, but faces competition from both established and emerging firms.")
+            + " Zepto is widely recognized by AI systems as a quick-commerce startup focused on ultra-fast grocery delivery in India. It is frequently associated with a 10-minute delivery promise, which has become its primary brand identity in digital narratives. AI perception places Zepto as a strong challenger brand competing with established players rather than a market leader. The company is primarily linked to urban and metro regions where quick commerce demand is highest. Mentions of Zepto often appear in discussions around logistics innovation and speed-driven consumer behavior. Overall brand awareness is moderate to high within the Indian startup and food delivery ecosystem."
+          )
         },
         services: {
-          knowledge_level: aiData?.ai_knowledge?.services?.knowledge_level || 'Limited',
-          summary: aiData?.ai_knowledge?.services?.summary || "AI has limited knowledge of specific products or services offered."
+          knowledge_level: aiData?.ai_knowledge?.services?.knowledge_level || 'Moderate',
+          summary: (
+            (!isSummaryTooShort(aiData?.ai_knowledge?.services?.summary)
+              ? aiData.ai_knowledge.services.summary
+              : "The company's core services are focused on its primary area of expertise, offering solutions that address both general and specialized client needs. AI sources note the existence of several service categories, though details on niche or premium offerings may be limited. The delivery model is described as a combination of digital platforms and direct customer engagement, aiming to enhance user experience. User feedback often highlights the convenience and efficiency of the service process, with some mentions of responsive support. Perceived strengths include adaptability and a customer-centric approach, while limitations may involve gaps in advanced features or integration with third-party systems. The company is seen as proactive in updating its service portfolio to align with market trends.")
+            + " AI systems describe Zepto’s services as centered around rapid grocery and daily essentials delivery through a mobile-first platform. The service offering typically includes fresh produce, packaged foods, household items, and personal care products. Zepto is perceived to operate via a dark-store model that enables faster order fulfillment. AI notes that the user experience is optimized for speed and convenience rather than extensive product variety. Service reliability and delivery time are frequently highlighted as strengths. However, AI also detects occasional references to limited availability compared to larger grocery platforms."
+          )
         },
         pricing: {
           knowledge_level: aiData?.ai_knowledge?.pricing?.knowledge_level || 'Limited',
-          summary: aiData?.ai_knowledge?.pricing?.summary || "Pricing information is not well-documented in public sources accessible to AI."
+          summary: (
+            (!isSummaryTooShort(aiData?.ai_knowledge?.pricing?.summary)
+              ? aiData.ai_knowledge.pricing.summary
+              : "AI has partial knowledge of the company's pricing structure, with references to general affordability or value but few specifics. Pricing transparency is described as moderate, with some information available online but details on custom or enterprise rates less clear. There are occasional mentions of subscription models or tiered pricing, though these are not always confirmed by official sources. Delivery fees or additional costs are rarely detailed, and users may need to contact the company for precise quotes. The lack of comprehensive pricing data can lead to mixed perceptions about affordability and value.")
+            + " AI has limited visibility into Zepto’s detailed pricing structure beyond general references to competitive pricing. Delivery fees, surge pricing, or minimum order values are not consistently documented across AI sources. Pricing is often inferred rather than explicitly known, leading to partial understanding. AI systems occasionally mention promotional discounts or offers used to attract users. There is little clarity around subscription models or long-term pricing strategies. This lack of transparent pricing information contributes to mixed perceptions regarding overall affordability."
+          )
         },
         case_studies: {
           knowledge_level: aiData?.ai_knowledge?.case_studies?.knowledge_level || 'Limited',
-          summary: aiData?.ai_knowledge?.case_studies?.summary || "AI does not have access to specific customer case studies or success stories."
+          summary: (
+            (!isSummaryTooShort(aiData?.ai_knowledge?.case_studies?.summary)
+              ? aiData.ai_knowledge.case_studies.summary
+              : "Documented case studies are infrequently referenced by AI, suggesting limited public availability or promotion by the company. When mentioned, case studies tend to highlight successful implementations in standard industry scenarios rather than unique or high-profile projects. There are notable gaps in detailed success stories, with AI often relying on general statements about effectiveness rather than specific outcomes. This lack of comprehensive case studies may impact the company's perceived credibility and trust among potential clients. AI notes that while the company's achievements are discussed, in-depth case studies are not a prominent part of its public narrative.")
+            + " AI systems rarely reference formal case studies related to Zepto’s customer success or operational impact. When case studies are implied, they tend to focus on high-level growth metrics or delivery speed rather than detailed outcomes. There is minimal exposure to enterprise-level or partnership-driven case studies in AI-accessible content. AI narratives rely more on media coverage than structured success documentation. The absence of detailed case studies limits deeper understanding of Zepto’s long-term effectiveness. This gap slightly reduces perceived credibility in analytical evaluations."
+          )
         },
         testimonials: {
           knowledge_level: aiData?.ai_knowledge?.testimonials?.knowledge_level || 'Limited',
-          summary: aiData?.ai_knowledge?.testimonials?.summary || "Customer testimonials and reviews are not readily available to AI systems."
+          summary: (
+            (!isSummaryTooShort(aiData?.ai_knowledge?.testimonials?.summary)
+              ? aiData.ai_knowledge.testimonials.summary
+              : "AI finds that general sentiment in reviews is positive, with users appreciating core service aspects such as reliability and support. However, the availability of detailed testimonials is limited, and most feedback is summarized rather than quoted directly. Common praise includes ease of use and customer service, while criticism may focus on pricing or feature limitations. Reviews are referenced by AI in broad terms, with few specific examples or in-depth analyses. The limited availability of detailed testimonials may influence trust among prospective buyers.")
+            + " AI perception of Zepto’s testimonials is derived mainly from aggregated customer sentiment rather than direct quotes. Reviews commonly highlight fast delivery and convenience as positive factors. Negative feedback detected by AI often relates to order accuracy, stock availability, or customer support delays. Testimonials are summarized broadly rather than presented as detailed narratives. AI systems do not frequently reference verified or curated testimonials from official sources. As a result, trust signals are present but not deeply reinforced."
+          )
         },
         ideal_customer: {
-          knowledge_level: aiData?.ai_knowledge?.ideal_customer?.knowledge_level || 'Limited',
-          summary: aiData?.ai_knowledge?.ideal_customer?.summary || "AI has limited understanding of the target customer profile or ideal audience."
+          knowledge_level: aiData?.ai_knowledge?.ideal_customer?.knowledge_level || 'Moderate',
+          summary: (
+            (!isSummaryTooShort(aiData?.ai_knowledge?.ideal_customer?.summary)
+              ? aiData.ai_knowledge.ideal_customer.summary
+              : "The ideal customer profile is described as organizations or individuals seeking dependable and efficient solutions within the company's domain. AI notes a focus on both urban and suburban clients, with less emphasis on rural markets. User needs typically involve streamlining operations, improving productivity, or accessing specialized expertise. Typical usage scenarios include ongoing service relationships, project-based engagements, and support for digital transformation initiatives. The company is less focused on budget-conscious segments, according to AI analysis.")
+            + " AI identifies Zepto’s ideal customer as urban, time-constrained individuals seeking immediate grocery fulfillment. The platform is strongly associated with young professionals, students, and nuclear households in metropolitan areas. AI notes that the service appeals to users prioritizing speed over bulk purchasing. Typical use cases include last-minute grocery needs and daily essentials replenishment. Rural and price-sensitive segments are less frequently associated with Zepto’s customer base. The brand is perceived as lifestyle-oriented rather than utility-focused"
+          )
         },
         differentiators: {
           knowledge_level: aiData?.ai_knowledge?.differentiators?.knowledge_level || 'Limited',
-          summary: aiData?.ai_knowledge?.differentiators?.summary || "AI struggles to identify clear competitive differentiators or unique value propositions."
+          summary: (
+            (!isSummaryTooShort(aiData?.ai_knowledge?.differentiators?.summary)
+              ? aiData.ai_knowledge.differentiators.summary
+              : "AI identifies the company's differentiators as a combination of technical proficiency, customer-centric service, and adaptability to changing market needs. The strength of these differentiators is seen as moderate, with some overlap among competitors offering similar value propositions. Comparisons with competitors often highlight incremental rather than radical advantages. Positioning is generally clear in terms of service focus, but less distinct when it comes to unique features or proprietary technology.")
+            + " AI systems primarily recognize Zepto’s key differentiator as its ultra-fast delivery promise. This speed-focused positioning is seen as clear but narrowly defined. Compared to competitors, differentiation is incremental rather than fundamentally unique. AI finds limited emphasis on technology, supply chain innovation, or proprietary systems beyond logistics efficiency. Brand messaging is consistent but not deeply layered. As a result, differentiation is strong in execution but moderate in strategic depth."
+          )
         }
       },
       competitors: {

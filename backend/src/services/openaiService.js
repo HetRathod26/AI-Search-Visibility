@@ -1,9 +1,44 @@
+// Get OpenAI-based brand rankings for a specific query
+export async function getOpenAIRankingsForQuery(query, industry = "", location = "") {
+  try {
+    const prompt = `For the search query: "${query}", list the top relevant brands in order of relevance for this category. Consider brand recall, market presence, and service relevance. Do NOT include explanations or the brand running this analysis. Only return a JSON array of objects in this format:\n\n{\n  \"query\": \"${query}\",\n  \"rankings\": [\n    { \"brand\": \"Brand1\", \"rank\": 1 },\n    { \"brand\": \"Brand2\", \"rank\": 2 }\n  ]\n}\n\nRules:\n- Only include brands, not generic terms.\n- Do not include the brand running this analysis.\n- Use only public perception and market presence.\n- List 3-7 brands per query.\n- No explanations, just the JSON.`;
+
+    const response = await axios.post(
+      "https://api.openai.com/v1/chat/completions",
+      {
+        model: "gpt-4o-mini",
+        messages: [
+          {
+            role: "system",
+            content: "You are an expert in market research and brand visibility."
+          },
+          {
+            role: "user",
+            content: prompt
+          }
+        ],
+        temperature: 0.2
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+          "Content-Type": "application/json"
+        }
+      }
+    );
+    return response.data.choices[0].message.content;
+  } catch (error) {
+    console.error("OpenAI Brand Ranking API Error:", error.response?.data || error.message);
+    throw new Error(`OpenAI Brand Ranking API failed: ${error.message}`);
+  }
+}
 import axios from "axios";
 
-export async function getAIInsights(companyName = 'OpenAI', website = '') {
+// Get detailed AI insights about a company in a strict JSON format
+export async function getAIInsights(companyName = "OpenAI", website = "") {
   try {
     console.log(`Calling OpenAI API for: ${companyName}...`);
-    
+
     const response = await axios.post(
       "https://api.openai.com/v1/chat/completions",
       {
@@ -16,8 +51,9 @@ export async function getAIInsights(companyName = 'OpenAI', website = '') {
           },
           {
             role: "user",
-            content:
-              `Perform a 3-STEP contextual sentiment analysis for "${companyName}"${website ? ` (${website})` : ''}.
+            content: `Perform a 3-STEP contextual sentiment analysis for "${companyName}"${
+              website ? ` (${website})` : ""
+            }.
 
 Return ONLY valid JSON in this exact format:
 {
@@ -227,44 +263,30 @@ MANDATORY RULES:
 about:
 - knowledge_level: Strong (well-documented company history) | Moderate (basic info available) | Limited (minimal public data)
 - summary: What AI typically knows about company founding, mission, business model
-- Example (Strong): "AI accurately describes Tesla as an EV and clean energy company founded by Elon Musk, with mission to accelerate sustainable transportation"
-- Example (Limited): "AI provides basic company name and industry but lacks detail on history, founding, or mission"
 
 services:
 - knowledge_level: Strong (detailed product catalog) | Moderate (main offerings known) | Limited (vague or generic descriptions)
 - summary: How AI describes products/services offered
-- Example (Strong): "AI clearly identifies Model S, Model 3, Model X, Model Y, Cybertruck, Solar Roof, and Powerwall"
-- Example (Limited): "AI mentions general product category (e.g., 'grocery delivery') but lacks specific service details"
 
 pricing:
 - knowledge_level: Strong (specific pricing known) | Moderate (pricing model understood) | Limited (no pricing details)
 - summary: AI's understanding of pricing structure and costs
-- Example (Strong): "AI provides specific vehicle prices ranging from $40k-$120k, though may be outdated"
-- Example (Limited): "AI does not reference pricing, suggesting lack of public pricing information"
 
 case_studies:
 - knowledge_level: Strong (specific examples) | Moderate (general use cases) | Limited (no specific cases)
 - summary: AI's knowledge of customer success stories or use cases
-- Example (Moderate): "AI mentions general adoption metrics but lacks specific customer testimonials"
-- Example (Limited): "AI does not reference specific case studies or customer success stories"
 
 testimonials:
 - knowledge_level: Strong (quotes/reviews) | Moderate (general sentiment) | Limited (no customer feedback)
 - summary: AI's access to customer reviews or feedback
-- Example (Moderate): "AI mentions high satisfaction scores but rarely quotes direct customer reviews"
-- Example (Limited): "AI lacks access to customer testimonials or review data"
 
 ideal_customer:
 - knowledge_level: Strong (clear profile) | Moderate (general audience) | Limited (unclear target)
 - summary: AI's understanding of target customer profile
-- Example (Strong): "AI identifies target as environmentally conscious consumers, early adopters, tech enthusiasts interested in premium EVs"
-- Example (Limited): "AI provides vague audience description without specific demographic or psychographic details"
 
 differentiators:
 - knowledge_level: Strong (unique features identified) | Moderate (general advantages) | Limited (unclear differentiation)
 - summary: AI's perception of competitive advantages
-- Example (Strong): "AI recognizes proprietary Supercharger network, OTA updates, Autopilot, and vertical battery integration"
-- Example (Limited): "AI does not clearly articulate what differentiates this brand from competitors"
 
 Be realistic: Smaller/regional brands will naturally show more "Limited" knowledge levels. This is VALID insight, not failure.
 
@@ -295,58 +317,14 @@ competitors.direct (Provide 2-4 companies):
 - Brands solving the SAME problem with SAME approach
 - Users would compare these when making purchase decisions
 
-EXAMPLES BY INDUSTRY:
-- Food Delivery: Zepto → direct: [Swiggy Instamart, Blinkit, BigBasket, Amazon Fresh]
-- E-commerce: Amazon → direct: [Walmart, Flipkart, eBay, Alibaba]
-- Payment: Stripe → direct: [PayPal, Square, Razorpay, Braintree]
-- Ride-sharing: Uber → direct: [Lyft, Ola, Grab, Bolt]
-- Streaming: Netflix → direct: [Amazon Prime Video, Disney+, HBO Max, Hulu]
-- SaaS CRM: Salesforce → direct: [HubSpot, Zoho CRM, Microsoft Dynamics]
-
 competitors.alternative (Provide 1-2 companies):
 - Different approach to same user need
 - Adjacent categories or business models
 - May not be direct competition but address similar pain points
 
-EXAMPLES:
-- Food Delivery → alternative: [Cloud kitchens, Meal kit services]
-- E-commerce → alternative: [Direct brand websites, Social commerce platforms]
-- Ride-sharing → alternative: [Public transit apps, Bike/scooter sharing]
-- Streaming → alternative: [YouTube, Cable TV services]
-
 For each competitor provide:
 - name: Exact company name (not generic)
 - reason: Specific reason why mentioned (10-15 words max)
-
-IMPORTANT EXAMPLES:
-
-For "Zepto" (quick commerce):
-{
-  "direct": [
-    {"name": "Swiggy Instamart", "reason": "Quick grocery delivery platform competing in Indian market"},
-    {"name": "Blinkit", "reason": "Fast commerce service delivering groceries in minutes"},
-    {"name": "BigBasket", "reason": "Online grocery platform with rapid delivery options"}
-  ],
-  "alternative": [
-    {"name": "Dunzo", "reason": "Hyperlocal delivery service offering similar quick commerce"},
-    {"name": "Amazon Fresh", "reason": "E-commerce giant's grocery delivery alternative"}
-  ]
-}
-
-For "Tesla" (electric vehicles):
-{
-  "direct": [
-    {"name": "Rivian", "reason": "Electric vehicle manufacturer targeting premium segment"},
-    {"name": "Lucid Motors", "reason": "Luxury EV brand competing in high-end market"},
-    {"name": "BYD", "reason": "Major electric vehicle producer with global presence"}
-  ],
-  "alternative": [
-    {"name": "Ford", "reason": "Traditional automaker expanding into electric vehicle market"},
-    {"name": "Polestar", "reason": "Performance electric vehicle brand from Volvo"}
-  ]
-}
-
-REMEMBER: Empty competitor arrays are NOT acceptable. Always identify at least 3 total competitors by thinking about the industry category.
 
 -----------------------------------
 ACTIONABLE RECOMMENDATIONS (MANDATORY - PROVIDE 5-7 RECOMMENDATIONS)
@@ -390,56 +368,6 @@ PRIORITY LEVELS:
 - Medium: Important improvements (specific knowledge gaps, sentiment issues)
 - Low: Optimization opportunities (already decent but could improve)
 
-RECOMMENDATION EXAMPLES:
-
-For company with Limited pricing knowledge:
-{
-  "title": "Publish Transparent Pricing Information",
-  "description": "Create a dedicated pricing page with clear plan tiers, costs, and value propositions. Use schema markup to help AI systems understand your pricing structure. This addresses the current gap where AI cannot accurately describe your pricing model.",
-  "priority": "High",
-  "trigger": "AI knowledge for pricing marked as Limited"
-}
-
-For company with Low visibility_level:
-{
-  "title": "Establish Thought Leadership Content",
-  "description": "Publish industry insights, whitepapers, or blog posts addressing common questions in your category. This will increase mentions in AI responses when users ask about industry topics, improving your visibility from Low to Medium.",
-  "priority": "High",
-  "trigger": "Overall visibility_level assessed as Low"
-}
-
-For company with Limited testimonials:
-{
-  "title": "Showcase Customer Success Stories",
-  "description": "Create detailed case studies with measurable outcomes and customer quotes. Feature these prominently on your website with structured data to ensure AI systems can reference specific customer experiences when discussing your brand.",
-  "priority": "Medium",
-  "trigger": "AI has Limited access to customer testimonials"
-}
-
-For company with negative sentiment themes:
-{
-  "title": "Address Customer Service Concerns",
-  "description": "The analysis shows users commonly complain about support responsiveness. Create comprehensive self-service resources, publish support response time commitments, and showcase improved customer satisfaction metrics to counter negative perceptions.",
-  "priority": "High",
-  "trigger": "Negative sentiment theme: Limited customer support"
-}
-
-For company with strong competitors:
-{
-  "title": "Clarify Competitive Differentiation",
-  "description": "AI struggles to distinguish you from competitors like [competitor names]. Create comparison pages, highlight unique features, and publish content explaining your specific advantages to help AI systems articulate what makes you different.",
-  "priority": "Medium",
-  "trigger": "Multiple direct competitors with unclear differentiation"
-}
-
-For regional brand competing with global brands:
-{
-  "title": "Emphasize Regional Expertise",
-  "description": "Highlight your deep understanding of the local market, regional customer support, and market-specific features. This positions you as the expert choice for regional customers versus global competitors.",
-  "priority": "Medium",
-  "trigger": "Competing with global brands in regional market"
-}
-
 CRITICAL RULES FOR RECOMMENDATIONS:
 ❌ Do NOT use generic advice like "improve SEO" without specifics
 ❌ Do NOT recommend tools, agencies, or paid advertising
@@ -463,10 +391,53 @@ MANDATORY: Provide 5-7 recommendations tailored to THIS company's specific gaps.
       }
     );
 
-    console.log('OpenAI response received');
     return response.data.choices[0].message.content;
   } catch (error) {
-    console.error('OpenAI API Error:', error.response?.data || error.message);
-    throw new Error(`OpenAI API failed: ${error.message}`);
+    console.error(
+      "OpenAI Insights API Error:",
+      error.response?.data || error.message
+    );
+    throw new Error(`OpenAI Insights API failed: ${error.message}`);
   }
 }
+
+// --- SENTIMENT SCORE ONLY ---
+export async function getSentimentScore(companyName = "OpenAI") {
+  try {
+    const response = await axios.post(
+      "https://api.openai.com/v1/chat/completions",
+      {
+        model: "gpt-4o-mini",
+        messages: [
+          {
+            role: "system",
+            content:
+              `You are an unbiased brand sentiment analyst.\nYour task is to summarize general public sentiment based on commonly reported opinions from reviews, articles, and discussions.\nDo not exaggerate sentiment.\nIf sentiment is mixed, reflect that accurately.\nReturn structured output only.`
+          },
+          {
+            role: "user",
+            content:
+              `Analyze the overall public sentiment for the brand: "${companyName}".\n\nBased on commonly observed opinions across reviews, articles, and online discussions, do the following:\n\n1. Classify the overall sentiment into ONE of the following categories:\n   - Mostly Positive\n   - Mixed\n   - Neutral\n   - Mostly Negative\n\n2. Provide an approximate count of sentiment signals used to form this conclusion:\n   - positive_mentions\n   - neutral_mentions\n   - negative_mentions\n\nImportant rules:\n- The counts must be realistic and proportional (not equal unless truly neutral).\n- Use relative estimation, not exact real-world data.\n- Ensure positive + neutral + negative counts > 0.\n- Keep the total count between 15 and 40.\n\nReturn the result in the following JSON format ONLY:\n\n{\n  "sentiment_class": "",\n  "positive_mentions": 0,\n  "neutral_mentions": 0,\n  "negative_mentions": 0\n}`
+          }
+        ],
+        temperature: 0.3
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+          "Content-Type": "application/json"
+        }
+      }
+    );
+    return response.data.choices[0].message.content;
+  } catch (error) {
+    console.error(
+      "OpenAI Sentiment Score API Error:",
+      error.response?.data || error.message
+    );
+    throw new Error(`OpenAI Sentiment Score API failed: ${error.message}`);
+  }
+}
+// --- END SENTIMENT SCORE ONLY ---
+
+

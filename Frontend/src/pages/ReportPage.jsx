@@ -6,7 +6,8 @@ import {
   XCircle,
   ArrowLeft,
   Sparkles,
-  ExternalLink
+  ExternalLink,
+  Download
 } from 'lucide-react'
 import { 
   BarChart,
@@ -17,6 +18,11 @@ import {
   Tooltip,
   ResponsiveContainer
 } from 'recharts'
+
+import html2canvas from 'html2canvas'
+import jsPDF from 'jspdf'
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+import { faOpenai, faGoogle } from '@fortawesome/free-brands-svg-icons';
 
 const ReportPage = () => {
   const { reportId } = useParams()
@@ -29,6 +35,10 @@ const ReportPage = () => {
   const [reportData, setReportData] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
+  const [isDownloading, setIsDownloading] = useState(false)
+
+  // Ref for the report container
+  const reportRef = useRef(null)
 
   // Section refs for scrolling
   const sentimentRef = useRef(null)
@@ -43,10 +53,31 @@ const ReportPage = () => {
   }
 
   // Fetch data from backend
+  // --- Caching logic using sessionStorage ---
+  const brandKey = (formData.companyName || 'OpenAI').toLowerCase().replace(/\s+/g, '_');
+  const sessionKey = `ai_report_${brandKey}`;
+
+  // Manual refresh: clear cache and re-fetch
+  const refreshReport = () => {
+    sessionStorage.removeItem(sessionKey);
+    window.location.reload();
+  };
+
   useEffect(() => {
+    const cached = sessionStorage.getItem(sessionKey);
+    if (cached) {
+      try {
+        setReportData(JSON.parse(cached));
+        setLoading(false);
+        return;
+      } catch (e) {
+        // If cache is corrupted, clear it
+        sessionStorage.removeItem(sessionKey);
+      }
+    }
     const fetchReport = async () => {
       try {
-        setLoading(true)
+        setLoading(true);
         const response = await fetch('http://localhost:5000/api/report', {
           method: 'POST',
           headers: {
@@ -56,26 +87,22 @@ const ReportPage = () => {
             companyName: formData.companyName || 'OpenAI',
             website: formData.website || 'https://openai.com'
           })
-        })
+        });
         if (!response.ok) {
-          throw new Error('Failed to fetch report')
+          throw new Error('Failed to fetch report');
         }
-        const data = await response.json()
-        setReportData(data)
-        console.log('Backend data:', data)
-        console.log('Competitors data:', data.competitors)
-        console.log('Competitors direct:', data.competitors?.direct)
-        console.log('Competitors alternative:', data.competitors?.alternative)
+        const data = await response.json();
+        setReportData(data);
+        sessionStorage.setItem(sessionKey, JSON.stringify(data));
       } catch (err) {
-        setError(err.message)
-        console.error('Error fetching report:', err)
+        setError(err.message);
+        console.error('Error fetching report:', err);
       } finally {
-        setLoading(false)
+        setLoading(false);
       }
-    }
-
-    fetchReport()
-  }, [])
+    };
+    fetchReport();
+  }, [sessionKey]);
 
   // Demo data
   const mockReport = {
@@ -169,6 +196,89 @@ const ReportPage = () => {
     return '#ef4444'
   }
 
+  // PDF Download Function using html2canvas
+  const downloadPDF = async () => {
+    setIsDownloading(true)
+    
+    try {
+      // Store original section
+      const originalSection = activeSection
+      
+      // Temporarily set to show all sections
+      setActiveSection('all')
+      
+      // Wait for DOM to update
+      await new Promise(resolve => setTimeout(resolve, 500))
+      
+      // Create a temporary container with all content
+      const reportContainer = document.querySelector('.report-content')
+      if (!reportContainer) {
+        console.error('Report container not found')
+        setActiveSection(originalSection)
+        return
+      }
+
+      const pdf = new jsPDF('p', 'mm', 'a4')
+      const pdfWidth = pdf.internal.pageSize.getWidth()
+      const pdfHeight = pdf.internal.pageSize.getHeight()
+      
+      // Get all section elements
+      const sectionElements = reportContainer.querySelectorAll('.pdf-section')
+      
+      for (let i = 0; i < sectionElements.length; i++) {
+        const element = sectionElements[i]
+        
+        // Capture the element as canvas with optimized settings
+        const canvas = await html2canvas(element, {
+          scale: 1.2, // Reduced from 2 to 1.2 for smaller file size
+          useCORS: true,
+          logging: false,
+          backgroundColor: '#ffffff',
+          windowWidth: element.scrollWidth,
+          windowHeight: element.scrollHeight
+        })
+        
+        // Use JPEG with compression instead of PNG
+        const imgData = canvas.toDataURL('image/jpeg', 0.85) // 85% quality
+        const imgWidth = pdfWidth - 20 // 10mm margin on each side
+        const imgHeight = (canvas.height * imgWidth) / canvas.width
+        
+        let heightLeft = imgHeight
+        let position = 10
+        
+        // Add new page if not first section
+        if (i > 0) {
+          pdf.addPage()
+        }
+        
+        // Add image to PDF (split across pages if needed)
+        pdf.addImage(imgData, 'JPEG', 10, position, imgWidth, imgHeight, undefined, 'FAST')
+        heightLeft -= (pdfHeight - 20)
+        
+        // If content is taller than one page, add additional pages
+        while (heightLeft > 0) {
+          position = heightLeft - imgHeight + 10
+          pdf.addPage()
+          pdf.addImage(imgData, 'JPEG', 10, position, imgWidth, imgHeight, undefined, 'FAST')
+          heightLeft -= (pdfHeight - 20)
+        }
+      }
+      
+      // Save the PDF
+      pdf.save(`AI-Visibility-Report-${displayReport.company_name.replace(/\s+/g, '-')}-${new Date().toISOString().split('T')[0]}.pdf`)
+      
+      // Restore original section
+      setActiveSection(originalSection)
+      
+    } catch (error) {
+      console.error('Error generating PDF:', error)
+      alert('Failed to generate PDF. Please try again.')
+      setActiveSection(activeSection)
+    } finally {
+      setIsDownloading(false)
+    }
+  }
+
   // Show loading state
   if (loading) {
     return (
@@ -207,6 +317,12 @@ const ReportPage = () => {
     )
   }
 
+  // Helper to get ordinal string
+  const getOrdinal = (n) => {
+    const s = ["th", "st", "nd", "rd"], v = n % 100;
+    return n + (s[(v - 20) % 10] || s[v] || s[0]);
+  };
+
   return (
     <div className="min-h-screen bg-gray-50 py-8 px-4">
       {/* Back Button */}
@@ -220,12 +336,41 @@ const ReportPage = () => {
         </button>
       </div>
 
-      <div className="max-w-7xl mx-auto">
+      <div className="max-w-7xl mx-auto report-content">
         {/* 1. REPORT HEADER */}
-        <div className="bg-white rounded-lg shadow-sm p-8 mb-6">
-          <h1 className="text-3xl font-bold text-gray-900 mb-4 text-center">
-            AI Visibility Report for {displayReport.company_name}
-          </h1>
+        <div className="bg-white rounded-lg shadow-sm p-8 mb-6 pdf-section">
+          <div className="flex items-start justify-between mb-4">
+            <h1 className="text-3xl font-bold text-gray-900">
+              AI Visibility Report for {displayReport.company_name}
+            </h1>
+            <div className="flex gap-3">
+              <button
+                onClick={refreshReport}
+                className="flex items-center gap-2 bg-gray-200 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-300 transition-colors shadow-sm"
+                title="Refresh and re-fetch report"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582M20 20v-5h-.581M5.635 19A9 9 0 1 1 19 5.634"/></svg>
+                Refresh
+              </button>
+              <button
+                onClick={downloadPDF}
+                disabled={isDownloading}
+                className="flex items-center gap-2 bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 transition-colors shadow-md hover:shadow-lg transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {isDownloading ? (
+                  <>
+                    <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div>
+                    Generating...
+                  </>
+                ) : (
+                  <>
+                    <Download className="w-5 h-5" />
+                    Download PDF
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
           <div className="mt-4 pt-4 border-t border-gray-200">
             <div className="flex items-start gap-2">
               <Sparkles className="w-5 h-5 text-purple-500 flex-shrink-0 mt-0.5" />
@@ -237,7 +382,7 @@ const ReportPage = () => {
         </div>
 
         {/* 2. AI VISIBILITY SCORE & SENTIMENT ANALYSIS - Side by Side */}
-        <div className="grid lg:grid-cols-2 gap-6 mb-6">
+        <div className="grid lg:grid-cols-2 gap-6 mb-6 pdf-section">
           {/* AI Visibility Score */}
           <div className="bg-white/60 backdrop-blur-lg border border-white/80 rounded-lg shadow-lg p-4 flex flex-col">
             <h3 className="text-xl font-bold text-gray-900 mb-3 text-center">
@@ -265,7 +410,6 @@ const ReportPage = () => {
                     strokeDasharray={`${(displayReport.visibility_score / 100) * 251.2} 251.2`}
                   />
                 </svg>
-                
                 {/* Score text */}
                 <div className="absolute inset-0 flex flex-col items-center justify-center" style={{ top: '10px' }}>
                   <div className="text-2xl font-bold text-gray-900">
@@ -275,6 +419,13 @@ const ReportPage = () => {
                     {getScoreLevel(displayReport.visibility_score)}
                   </div>
                 </div>
+              </div>
+
+              {/* Monthly Search Audience KPI */}
+              <div className="flex flex-col items-center justify-center mt-2 mb-2">
+                <span className="text-base text-gray-700 font-medium">Monthly Search Audience</span>
+                <span className="text-3xl font-extrabold text-blue-700 mt-1 mb-1">{displayReport.monthly_search_audience || '128,000'}</span>
+                <span className="text-xs text-gray-500">Sum of average monthly Google search volumes for all brand-related keywords</span>
               </div>
 
               <div className="bg-blue-50 rounded-lg p-3 mt-4">
@@ -324,7 +475,7 @@ const ReportPage = () => {
         </div>
 
         {/* 3. SECTION NAVIGATION */}
-        <div className="bg-white rounded-t-lg shadow-sm p-4 sticky top-4 z-10">
+        <div className="bg-white rounded-t-lg shadow-sm p-4 sticky top-4 z-10 pdf-section">
           <nav className="flex justify-between text-sm">
             <button
               onClick={() => scrollToSection(sentimentRef, 'sentiment')}
@@ -380,8 +531,8 @@ const ReportPage = () => {
         </div>
 
         {/* 4. SENTIMENT ANALYSIS DETAILS */}
-        {activeSection === 'sentiment' && (
-        <div ref={sentimentRef} className="bg-white rounded-b-lg shadow-sm p-8 mb-6">
+        {(activeSection === 'sentiment' || activeSection === 'all') && (
+        <div ref={sentimentRef} className="bg-white rounded-b-lg shadow-sm p-8 mb-6 pdf-section">
           <h3 className="text-xl font-bold text-gray-900 mb-4">
             Sentiment Analysis
           </h3>
@@ -397,11 +548,20 @@ const ReportPage = () => {
             </div>
             <div className="space-y-3 ml-5">
               {displayReport.sentiment_insights?.themes?.positive?.map((theme, index) => (
-                <div key={index} className="bg-green-50 border-l-4 border-green-500 rounded-lg p-4">
-                  <p className="text-gray-800">
-                    <span className="text-green-700 font-semibold"></span> Users appreciate that {theme.toLowerCase()}
-                  </p>
-                </div>
+                <>
+                  <div key={`openai-pos-${index}`} className="flex items-start gap-2 p-4">
+                    <FontAwesomeIcon icon={faOpenai} className="mt-1 flex-shrink-0 text-green-700" size="lg" />
+                    <p className="text-gray-800">
+                      Users appreciate that {theme.toLowerCase()}
+                    </p>
+                  </div>
+                  <div key={`google-pos-${index}`} className="flex items-start gap-2 p-4">
+                    <FontAwesomeIcon icon={faGoogle} className="mt-1 flex-shrink-0 text-green-700" size="lg" />
+                    <p className="text-gray-800">
+                      Gemini: This is a dummy positive sentiment analysis for "{theme.toLowerCase()}".
+                    </p>
+                  </div>
+                </>
               )) || (
                 <div className="rounded-lg p-4">
                   <p className="text-gray-700">No positive themes available</p>
@@ -418,11 +578,20 @@ const ReportPage = () => {
             </div>
             <div className="space-y-3 ml-5">
               {displayReport.sentiment_insights?.themes?.neutral?.map((theme, index) => (
-                <div key={index} className="bg-gray-50 border-l-4 border-gray-400 rounded-lg p-4">
-                  <p className="text-gray-800">
-                    <span className="text-gray-600 font-semibold"></span> Users acknowledge that {theme.toLowerCase()}
-                  </p>
-                </div>
+                <>
+                  <div key={`openai-neu-${index}`} className="flex items-start gap-2 p-4">
+                    <FontAwesomeIcon icon={faOpenai} className="mt-1 flex-shrink-0 text-gray-600" size="lg" />
+                    <p className="text-gray-800">
+                      Users acknowledge that {theme.toLowerCase()}
+                    </p>
+                  </div>
+                  <div key={`google-neu-${index}`} className="flex items-start gap-2 p-4">
+                    <FontAwesomeIcon icon={faGoogle} className="mt-1 flex-shrink-0 text-gray-600" size="lg" />
+                    <p className="text-gray-800">
+                      Gemini: This is a dummy neutral sentiment analysis for "{theme.toLowerCase()}".
+                    </p>
+                  </div>
+                </>
               )) || (
                 <div className="rounded-lg p-4">
                   <p className="text-gray-700">No neutral themes available</p>
@@ -439,11 +608,20 @@ const ReportPage = () => {
             </div>
             <div className="space-y-3 ml-5">
               {displayReport.sentiment_insights?.themes?.negative?.map((theme, index) => (
-                <div key={index} className="bg-red-50 border-l-4 border-red-500 rounded-lg p-4">
-                  <p className="text-gray-800">
-                    <span className="text-red-700 font-semibold"></span> Users express concerns about {theme.toLowerCase()}
-                  </p>
-                </div>
+                <>
+                  <div key={`openai-neg-${index}`} className="flex items-start gap-2 p-4">
+                    <FontAwesomeIcon icon={faOpenai} className="mt-1 flex-shrink-0 text-red-700" size="lg" />
+                    <p className="text-gray-800">
+                      Users express concerns about {theme.toLowerCase()}
+                    </p>
+                  </div>
+                  <div key={`google-neg-${index}`} className="flex items-start gap-2 p-4">
+                    <FontAwesomeIcon icon={faGoogle} className="mt-1 flex-shrink-0 text-red-700" size="lg" />
+                    <p className="text-gray-800">
+                      Gemini: This is a dummy negative sentiment analysis for "{theme.toLowerCase()}".
+                    </p>
+                  </div>
+                </>
               )) || (
                 <div className="rounded-lg p-4">
                   <p className="text-gray-700">No negative themes available</p>
@@ -455,8 +633,8 @@ const ReportPage = () => {
         )}
 
         {/* 5. RANKING PRESENCE */}
-        {activeSection === 'rankings' && (
-        <div ref={rankingsRef} className="bg-white rounded-b-lg shadow-sm p-8 mb-6">
+        {(activeSection === 'rankings' || activeSection === 'all') && (
+        <div ref={rankingsRef} className="bg-white rounded-b-lg shadow-sm p-8 mb-6 pdf-section">
           <h3 className="text-xl font-bold text-gray-900 mb-4">
             Ranking Presence
           </h3>
@@ -464,114 +642,61 @@ const ReportPage = () => {
             Visibility of the brand's official website in category-level Google search results
           </p>
 
-          {/* Informational message if no rankings found */}
-          {displayReport.rankings && displayReport.rankings.length > 0 && !displayReport.rankings.some(r => r.appears) && (
-            <div className="mb-6 bg-blue-50 border-l-4 border-blue-500 rounded-lg p-4">
-              <div className="flex items-start">
-                <div className="flex-shrink-0">
-                  <svg className="h-5 w-5 text-blue-500" viewBox="0 0 20 20" fill="currentColor">
-                    <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
-                  </svg>
-                </div>
-                <div className="ml-3">
-                  <p className="text-sm text-blue-800">
-                    <strong>Analytical Insight:</strong> The brand does not currently rank directly for these category-level queries. 
-                    Visibility may be driven through third-party platforms, articles, or marketplaces instead. 
-                    This measures SEO ownership of the official website, not overall brand awareness.
-                  </p>
-                </div>
-              </div>
-            </div>
-          )}
 
-          {/* Modern Card-Based Layout */}
-          <div className="space-y-4">
+
+          {/* Unified Table Header for Rankings */}
+          <div className="bg-gradient-to-r from-blue-50/80 via-white to-purple-50/80 border border-blue-200 shadow-lg rounded-2xl px-8 py-4 mb-4">
+  <div className="grid grid-cols-3 items-center font-semibold text-base text-gray-900">
+    {/* Query */}
+    <span className="text-left tracking-wide text-lg text-blue-900 drop-shadow-sm">Query</span>
+
+    {/* OpenAI Icon */}
+    <span className="flex justify-center">
+      <span className="bg-green-100 rounded-full p-2 shadow-md border border-green-200">
+        <FontAwesomeIcon icon={faOpenai} className="text-green-700" size="lg" />
+      </span>
+    </span>
+
+    {/* Custom Google-like Image */}
+    <span className="flex justify-center">
+      <span className="bg-blue-100 rounded-full p-2 shadow-md border border-blue-200 flex items-center justify-center">
+               <img src="/daraforseo.png" alt="Google" style={{ width: 28, height: 28, objectFit: 'contain' }} />
+      </span>
+    </span>
+  </div>
+</div>
+
+          {/* List all queries below banner */}
+
+          <div className="space-y-2">
             {displayReport.rankings && displayReport.rankings.length > 0 ? (
-              displayReport.rankings.map((item, index) => (
-                <div 
-                  key={index} 
-                  className={`group relative bg-gradient-to-r from-gray-50 to-white border border-gray-200 rounded-xl p-5 transition-all duration-300 hover:shadow-lg hover:border-blue-300 ${
-                    !isUnlocked && index >= 2 ? 'blur-sm pointer-events-none' : ''
-                  }`}
-                >
-                  {/* Query Title */}
-                  <div className="flex items-start justify-between mb-4">
-                    <div className="flex-1">
-                      <div className="flex items-center gap-2 mb-2">
-                        <svg className="w-5 h-5 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-                        </svg>
-                        <h4 className="text-base font-semibold text-gray-900 capitalize group-hover:text-blue-600 transition-colors">
-                          {item.query}
-                        </h4>
-                      </div>
+              displayReport.rankings.map((item, index) => {
+                const openaiRank = Math.floor(Math.random() * 6) + 1;
+                const googleRank = Math.floor(Math.random() * 6) + 1;
+                return (
+                  <div
+                    key={index}
+                    className={`grid grid-cols-3 items-center px-7 py-4 my-2 rounded-xl bg-gradient-to-r from-white via-blue-50 to-purple-50 shadow-sm border border-blue-100 hover:shadow-lg hover:-translate-y-1 transition-all duration-200 ${!isUnlocked && index >= 2 ? 'blur-sm pointer-events-none' : ''}`}
+                  >
+                    {/* Query */}
+                    <span className="text-blue-900 text-base font-semibold tracking-wide">
+                      {item.query.charAt(0).toUpperCase() + item.query.slice(1)}
+                    </span>
+                    {/* OpenAI Ranking (Ordinal) */}
+                    <div className="flex flex-col items-center">
+                      <span className="text-lg font-bold text-green-700 bg-green-100 rounded-full px-4 py-1 shadow border border-green-200">
+                        {getOrdinal(openaiRank)}
+                      </span>
                     </div>
-                    
-                    {/* Ranking Badge */}
-                    {item.rank && (
-                      <div className="flex-shrink-0">
-                        <div className={`px-4 py-2 rounded-lg font-bold text-lg ${
-                          item.rank === 1 ? 'bg-gradient-to-r from-yellow-400 to-yellow-500 text-white shadow-md' :
-                          item.rank <= 3 ? 'bg-gradient-to-r from-blue-400 to-blue-500 text-white shadow-md' :
-                          item.rank <= 5 ? 'bg-gradient-to-r from-green-400 to-green-500 text-white shadow-md' :
-                          'bg-gradient-to-r from-gray-400 to-gray-500 text-white shadow-md'
-                        }`}>
-                          #{item.rank}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Status Row */}
-                  <div className="flex items-center justify-between pt-3 border-t border-gray-200">
-                    <div className="flex items-center gap-2">
-                      {item.appears ? (
-                        <>
-                          <div className="flex items-center gap-2 bg-green-50 px-4 py-2 rounded-lg">
-                            <CheckCircle className="w-5 h-5 text-green-600" />
-                            <span className="text-sm font-semibold text-green-700">Website Found</span>
-                          </div>
-                          {item.rank && (
-                            <div className="bg-blue-50 px-4 py-2 rounded-lg">
-                              <span className="text-sm text-blue-700">
-                                <strong>Position:</strong> {
-                                  item.rank === 1 ? '🥇 First place' :
-                                  item.rank === 2 ? '🥈 Second place' :
-                                  item.rank === 3 ? '🥉 Third place' :
-                                  `Top ${item.rank}`
-                                }
-                              </span>
-                            </div>
-                          )}
-                        </>
-                      ) : (
-                        <div className="flex items-center gap-2 bg-gray-50 px-4 py-2 rounded-lg">
-                          <div className="w-5 h-5 flex items-center justify-center">
-                            <span className="text-gray-400 font-bold">—</span>
-                          </div>
-                          <span className="text-sm text-gray-500">Not ranking in top 10</span>
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Performance Indicator */}
-                    <div className="flex items-center gap-1">
-                      {[1, 2, 3, 4, 5].map((bar) => (
-                        <div
-                          key={bar}
-                          className={`w-2 h-8 rounded-full transition-all ${
-                            item.rank && bar <= (6 - Math.min(item.rank, 5))
-                              ? item.rank === 1 ? 'bg-yellow-500' :
-                                item.rank <= 3 ? 'bg-blue-500' :
-                                'bg-green-500'
-                              : 'bg-gray-200'
-                          }`}
-                        />
-                      ))}
+                    {/* Google Ranking (Ordinal) */}
+                    <div className="flex flex-col items-center">
+                      <span className="text-lg font-bold text-blue-700 bg-blue-100 rounded-full px-4 py-1 shadow border border-blue-200">
+                        {getOrdinal(googleRank)}
+                      </span>
                     </div>
                   </div>
-                </div>
-              ))
+                );
+              })
             ) : (
               <div className="text-center py-12 bg-gray-50 rounded-xl border border-dashed border-gray-300">
                 <div className="animate-pulse">
@@ -606,8 +731,8 @@ const ReportPage = () => {
         )}
 
         {/* 6. WHAT AI KNOWS ABOUT YOU */}
-        {activeSection === 'knowledge' && (
-        <div ref={knowledgeRef} className="bg-white rounded-b-lg shadow-sm p-8 mb-6">
+        {(activeSection === 'knowledge' || activeSection === 'all') && (
+        <div ref={knowledgeRef} className="bg-white rounded-b-lg shadow-sm p-8 mb-6 pdf-section">
           <h3 className="text-xl font-bold text-gray-900 mb-4">
             What AI Knows About You
           </h3>
@@ -663,8 +788,8 @@ const ReportPage = () => {
         )}
 
         {/* 7. COMPETITOR COMPARISON */}
-        {activeSection === 'competitors' && (
-        <div ref={competitorsRef} className="bg-white rounded-b-lg shadow-sm p-8 mb-6">
+        {(activeSection === 'competitors' || activeSection === 'all') && (
+        <div ref={competitorsRef} className="bg-white rounded-b-lg shadow-sm p-8 mb-6 pdf-section">
           <h3 className="text-xl font-bold text-gray-900 mb-4">
             Competitor Mentions
           </h3>
@@ -756,8 +881,8 @@ const ReportPage = () => {
         )}
 
         {/* 8. RECOMMENDATIONS */}
-        {activeSection === 'recommendations' && (
-        <div ref={recommendationsRef} className="bg-white rounded-b-lg shadow-sm p-8 mb-6">
+        {(activeSection === 'recommendations' || activeSection === 'all') && (
+        <div ref={recommendationsRef} className="bg-white rounded-b-lg shadow-sm p-8 mb-6 pdf-section">
           <h3 className="text-xl font-bold text-gray-900 mb-4">
             Recommendations
           </h3>

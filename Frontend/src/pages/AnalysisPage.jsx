@@ -158,7 +158,7 @@ const AnalysisPage = () => {
 
         {/* AI Engines Being Queried - Side Stats */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
-          {['ChatGPT', 'Claude', 'Perplexity', 'Gemini'].map((engine, i) => (
+          {['ChatGPT', 'DataForSeo','Gemini'].map((engine, i) => (
             <motion.div
               key={engine}
               initial={{ opacity: 0, x: -20 }}
